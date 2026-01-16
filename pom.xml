@@ -106,6 +106,6 @@
 				<artifactId>spring-boot-maven-plugin</artifactId>
 			</plugin>
 		</plugins>
-		<finalName>psl-search-apis</finalName>
+		<finalName>psl-search-sync</finalName>
 	</build>
 </project>
