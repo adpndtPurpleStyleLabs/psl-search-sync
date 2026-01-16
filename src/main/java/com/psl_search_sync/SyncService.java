@@ -132,7 +132,7 @@ public class SyncService {
                     doc.put("color", extractColors(src));
                     doc.put("created_at", toEpochSeconds((String) src.get("created_at")));
                     doc.put("gender", mapGender(extractGender(src)).gender);
-                    doc.put("gender_value", mapGender(extractGender(src)).genderValue);
+                    doc.put("gender_rank", mapGender(extractGender(src)).genderValue);
                     doc.put("price", extractPrice(src));
                     doc.put("price_by_currency", extractFloatWithFallback(src, "price_by_currency", "price"));
                     doc.put("price_for_other", extractFloatWithFallback(src, "price_for_other", "price"));
@@ -144,6 +144,7 @@ public class SyncService {
                     doc.put("hideDiscountFlag", 0);
                     doc.put("hover_image", buildImageUrl(src, "thumbnail"));
                     doc.put("image_url", buildImageUrl(src, "image"));
+                    doc.put("image_label", "");
                     doc.put("img", buildImageUrl(src, "image"));
                     doc.put("isAvailable", extractIsAvailable(src));
                     doc.put("is_online", 1);
@@ -153,14 +154,14 @@ public class SyncService {
                     doc.put("product_type", extractStringOrEmpty(src, "type_id"));
                     doc.put("url", extractStringOrEmpty(src, "url_key"));
                     doc.put("show_rts_button", 0);
-                    doc.put("soldOut", extractSoldOut(src));
-                    doc.put("showInterest", extractSoldOut(src));
+                    doc.put("soldOut", extractSoldOut(src) ? 1 : 0);
+                    doc.put("showInterest", extractSoldOut(src) ? 1 : 0);
                     doc.put("type", "product");
                     ShippingInfo shippingInfo = extractShippingInfo(src);
                     doc.put("ship_in_info", prepareShipInDays(src.get("ship_in_days")));
                     doc.put("available_sizes", shippingInfo.availableSizes);
-                    doc.put("readyToShip", shippingInfo.readyToShip);
-                    doc.put("readyToShip_24hr", shippingInfo.readyToShip24hr);
+                    doc.put("readyToShip", shippingInfo.readyToShip ? 1 :0);
+                    doc.put("readyToShip_24hr", shippingInfo.readyToShip24hr ? 1 :0);
                     doc.put("readyToShipIcon", shippingInfo.readyToShipIcon);
                     doc.put("readyToShip_24hr_text", shippingInfo.readyToShipText);
                     doc.put("discount", extractDiscount(src, "discount"));
@@ -178,7 +179,7 @@ public class SyncService {
 
             }
 
-            typesenseClient
+            var a = typesenseClient
                     .collections(TYPESENSE_COLLECTION)
                     .documents()
                     .import_(
@@ -517,10 +518,10 @@ public class SyncService {
     }
 
     static class ShippingInfo {
-        boolean readyToShip;
-        boolean readyToShip24hr;
-        String readyToShipIcon;
-        String readyToShipText;
+        boolean readyToShip = false;
+        boolean readyToShip24hr = false;
+        String readyToShipIcon = "";
+        String readyToShipText = "";
         List<String> availableSizes = new ArrayList<>();
     }
 
