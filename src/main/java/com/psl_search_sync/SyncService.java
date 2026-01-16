@@ -27,6 +27,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.regex.Pattern;
 
 @Service
 public class SyncService {
@@ -41,6 +42,16 @@ public class SyncService {
     @Value("${TYPESENSE_COLLECTION}")
     private String TYPESENSE_COLLECTION;
     private static final DoubleMetaphone DM = new DoubleMetaphone();
+
+
+    public static final Set<String> predefinedColor = Set.of(
+        "magenta","pink","rose gold","yellow","midnight blue","turquoise",
+                "multi","gold","red","fuchsia","mint","mustard","white","coral",
+                "blush pink","ivory","golden","copper","powder blue","black & white",
+                "colourless","burgundy","green","lime","black","peach","violet",
+                "brown","olive green","grey","bronze","beige","orange","blue",
+                "cobalt blue","purple","silver","nude","maroon","mauve","wine"
+    );
 
     public boolean isRunning = false;
     public void startFullSync() throws Exception {
@@ -135,7 +146,7 @@ public class SyncService {
                     doc.put("short_description_phonetic", phonetic(((String) src.get("short_description")).toLowerCase()));
                     doc.put("categories", extractCategories(src));
                     doc.put("categories_phonetic", phoneticCategories(extractCategories(src)));
-                    doc.put("color", extractColors(src));
+                    doc.put("color", extractColors(src, ((String) src.get("short_description")).toLowerCase()));
                     doc.put("created_at", toEpochSeconds((String) src.get("created_at")));
                     doc.put("gender", mapGender(extractGender(src)).gender);
                     doc.put("gender_rank", mapGender(extractGender(src)).genderValue);
@@ -222,23 +233,45 @@ public class SyncService {
     }
 
     @SuppressWarnings("unchecked")
-    private static List<String> extractColors(Map<String, Object> src) {
-        Object colorObj = src.get("color");
-        if (!(colorObj instanceof List)) {
-            return Collections.emptyList();
-        }
-        List<Map<String, Object>> colorList =
-                (List<Map<String, Object>>) colorObj;
+    private static List<String> extractColors(Map<String, Object> src, String desc) {
 
-        List<String> colors = new ArrayList<>();
-        for (Map<String, Object> colorMap : colorList) {
-            Object value = colorMap.get("label_value");
-            if (value != null) {
-                colors.add(value.toString().toLowerCase());
+        // Use Set to avoid duplicates + preserve order
+        Set<String> colors = new LinkedHashSet<>();
+
+        // ---------- 1. Structured colors from ES ----------
+        Object colorObj = src.get("color");
+        if (colorObj instanceof List) {
+            List<Map<String, Object>> colorList =
+                    (List<Map<String, Object>>) colorObj;
+
+            for (Map<String, Object> colorMap : colorList) {
+                Object value = colorMap.get("label_lower");
+                if (value != null) {
+                    colors.add(value.toString().toLowerCase().trim());
+                }
             }
         }
-        return colors;
+
+        // ---------- 2. Enrich from description ----------
+        if (desc != null && !desc.isBlank()) {
+            String lowerDesc = desc.toLowerCase();
+
+            for (String predefinedColor : predefinedColor) {
+                if (containsWord(lowerDesc, predefinedColor)) {
+                    colors.add(predefinedColor);
+                }
+            }
+        }
+
+        return new ArrayList<>(colors);
     }
+    private static boolean containsWord(String text, String word) {
+        return Pattern
+                .compile("\\b" + Pattern.quote(word) + "\\b")
+                .matcher(text)
+                .find();
+    }
+
 
     @SuppressWarnings("unchecked")
     private static List<String> extractCategories(Map<String, Object> src) {
