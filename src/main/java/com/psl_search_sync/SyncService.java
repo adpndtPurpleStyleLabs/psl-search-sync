@@ -42,10 +42,16 @@ public class SyncService {
     private String TYPESENSE_COLLECTION;
     private static final DoubleMetaphone DM = new DoubleMetaphone();
 
+    public boolean isRunning = false;
     public void startFullSync() throws Exception {
-        migrate(elasticClient, typeSenseClient);
-        System.out.println("✅ Migration completed successfully");
+        if(!isRunning){
+            migrate(elasticClient, typeSenseClient);
+            System.out.println("✅ Migration completed successfully");
+            isRunning = false;
+        }
     }
+
+    
 
     private void migrate(RestHighLevelClient esClient, Client typesenseClient) throws Exception {
         SearchRequest searchRequest = new SearchRequest(ES_INDEX);
