@@ -1,0 +1,30 @@
+name: Test, Upload artifact
+
+on:
+  push:
+    branches:
+      - '**'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    name: Build, package and
+    steps:
+      - uses: actions/checkout@v1
+      - name: Set up JDK 24
+        uses: actions/setup-java@v1
+        with:
+          java-version: 24
+      - name: Build and package project
+        run: |
+          rev=$(git rev-parse --short HEAD)
+          echo "rev  ${rev}"
+          ls
+          echo "hello"
+          echo ${{secrets.NEXUS_USER_NAME}}
+          mvn clean package -DskipTests
+          sudo docker build --build-arg GIT_COMMIT=${rev} -t psl-search-sync-microservice/t:latest -f Dockerfile .
+          sudo docker image tag psl-search-sync-microservice/t nexus.ppustage.dev/psl-search-sync-microservice-service:${rev}
+          echo ${{secrets.NEXUS_USER_NAME}}
+          sudo docker login -u ${{secrets.NEXUS_USER_NAME}} -p ${{secrets.NEXUS_PASSWORD}} nexus.ppustage.dev
+          sudo docker push nexus.ppustage.dev/psl-search-sync-microservice-service:${rev}
