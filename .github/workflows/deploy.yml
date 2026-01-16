@@ -18,7 +18,7 @@ jobs:
       - name: Build and package project
         run: |
           rev=$(git rev-parse --short HEAD)
-          echo "rev  ${rev}"
+          echo "rev  ${rev}" 
           ls
           echo "hello"
           echo ${{secrets.NEXUS_USER_NAME}}
