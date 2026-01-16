@@ -25,7 +25,7 @@ public class SyncController {
             return new ResponseEntity<>(HttpStatus.OK);
         } catch (Exception ex) {
             log.error("Error" + ex.getMessage());
-            ex.printStackTrace();
+//            ex.printStackTrace();
 
             return new ResponseEntity<>(HttpStatus.BAD_REQUEST);
         }
