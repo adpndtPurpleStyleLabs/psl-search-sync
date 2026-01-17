@@ -3,6 +3,10 @@ package com.psl_search_sync;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
 @Service
 public class EmbiddingApiClient {
 
@@ -43,4 +47,36 @@ public class EmbiddingApiClient {
 
         return vector;
     }
+
+    public Map<String, float[]> embedBulk(List<BulkEmbedItem> items) {
+
+        BulkEmbedRequest request = new BulkEmbedRequest();
+        request.setItems(items);
+
+        BulkEmbedResponse response = webClient
+                .post()
+                .uri("/embed/bulk")
+                .bodyValue(request)
+                .retrieve()
+                .bodyToMono(BulkEmbedResponse.class)
+                .block();
+
+        Map<String, float[]> result = new HashMap<>();
+
+        if (response == null || response.getResults() == null) {
+            return result;
+        }
+
+        for (BulkEmbedResult r : response.getResults()) {
+            float[] vector = new float[r.getEmbedding().size()];
+            for (int i = 0; i < vector.length; i++) {
+                vector[i] = r.getEmbedding().get(i).floatValue();
+            }
+            result.put(r.getSku(), vector);
+        }
+
+        return result;
+    }
+
+
 }

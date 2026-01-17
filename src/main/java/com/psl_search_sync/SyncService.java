@@ -131,6 +131,7 @@ public class SyncService {
 
         String scrollId = response.getScrollId();
         SearchHit[] hits = response.getHits().getHits();
+        List<BulkEmbedItem> embedItems = new ArrayList<>();
 
         while (hits != null && hits.length > 0) {
 
@@ -200,12 +201,28 @@ public class SyncService {
                     doc.put("discount_range_row", prepareDiscountRange(extractDiscount(src, "discount_row")));
                     doc.put("tag", extractTagFromHtml(src.get("icon_html")));
                     doc.put("price_on_request", extractPriceOnRequest(src, extractSoldOut(src)));
-                    doc.put("embedding", makeEmbedding(categories, colors, brand, shortDescription));
+//                    doc.put("embedding", makeEmbedding(categories, colors, brand, shortDescription));
+                    String embeddingText = buildEmbeddingText(categories, colors, brand, shortDescription);
+
+                    embedItems.add(new BulkEmbedItem(sku, embeddingText));
+
+
                     batch.add(doc);
                 } catch (Exception ex) {
                     System.out.println("Error in " + sku + "  " + ex.getMessage());
                 }
 
+            }
+            Map<String, float[]> embeddingsBySku =
+                    embiddingApiClient.embedBulk(embedItems);
+
+
+            for (Map<String, Object> doc : batch) {
+                String sku = (String) doc.get("sku");
+                float[] embedding = embeddingsBySku.get(sku);
+                if (embedding != null) {
+                    doc.put("embedding", embedding);
+                }
             }
 
             var a = typesenseClient
