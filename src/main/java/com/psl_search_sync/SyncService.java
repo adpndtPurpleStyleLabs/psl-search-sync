@@ -143,6 +143,7 @@ public class SyncService {
                 List<BulkEmbedItem> embedItems = new ArrayList<>();
 
                 for (SearchHit hit : hits) {
+                    try {
                     Map<String, Object> src = hit.getSourceAsMap();
                     Map<String, Object> doc = new HashMap<>();
                     String type = (String) src.get("type_id");
@@ -154,7 +155,7 @@ public class SyncService {
                     List<String> colors = extractColors(src, ((String) src.get("short_description")).toLowerCase());
                     String brand = ((String) src.get("name")).toLowerCase();
                     String shortDescription = (normalizeShortDescription(src.get("short_description")).toLowerCase());
-                    try {
+
                         doc.put("id", src.get("id"));
                         doc.put("sku", sku);
                         doc.put("brand", brand);
@@ -214,7 +215,8 @@ public class SyncService {
 
                         batch.add(doc);
                     } catch (Exception ex) {
-                        System.out.println("Error in " + sku + "  " + ex.getMessage());
+                        ex.printStackTrace();
+                        System.out.println("Error in "  + "  " + ex.getMessage());
                     }
 
                 }
