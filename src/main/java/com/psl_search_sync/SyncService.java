@@ -16,6 +16,7 @@ import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.typesense.api.Client;
 import org.typesense.api.Configuration;
@@ -32,7 +33,7 @@ import java.util.regex.Pattern;
 @Service
 public class SyncService {
     @Autowired
-    private  EmbiddingApiClient embiddingApiClient;
+    private EmbiddingApiClient embiddingApiClient;
     @Autowired
     private RestHighLevelClient elasticClient;
     @Autowired
@@ -61,14 +62,13 @@ public class SyncService {
             "to", "by", "from", "at", "is", "are", "this", "that"
     );
 
-    public boolean isRunning = false;
+    public volatile  static boolean isRunning = false;
 
+    @Async
     public void startFullSync() throws Exception {
-        if (!isRunning) {
-            migrate(elasticClient, typeSenseClient);
-            System.out.println("✅ Migration completed successfully");
-            isRunning = false;
-        }
+        isRunning = true;
+        migrate(elasticClient, typeSenseClient);
+        isRunning = false;
     }
 
 
@@ -133,132 +133,135 @@ public class SyncService {
         SearchHit[] hits = response.getHits().getHits();
 
         while (hits != null && hits.length > 0) {
+            try {
+                List<Map<String, Object>> batch = new ArrayList<>();
+                List<BulkEmbedItem> embedItems = new ArrayList<>();
 
-            List<Map<String, Object>> batch = new ArrayList<>();
-            List<BulkEmbedItem> embedItems = new ArrayList<>();
+                for (SearchHit hit : hits) {
+                    Map<String, Object> src = hit.getSourceAsMap();
+                    Map<String, Object> doc = new HashMap<>();
+                    String type = (String) src.get("type_id");
 
-            for (SearchHit hit : hits) {
-                Map<String, Object> src = hit.getSourceAsMap();
-                Map<String, Object> doc = new HashMap<>();
-                String type = (String) src.get("type_id");
+                    if (type.equals("giftcards")) continue;
+                    String sku = ((String) src.get("sku")).toLowerCase();
 
-                if (type.equals("giftcards")) continue;
-                String sku = ((String) src.get("sku")).toLowerCase();
-
-                List<String> categories =  extractCategories(src);
-                List<String> colors =  extractColors(src, ((String) src.get("short_description")).toLowerCase());
-                String brand = ((String) src.get("name")).toLowerCase();
-                String shortDescription = (normalizeShortDescription(src.get("short_description")).toLowerCase());
-                try {
-                    doc.put("id", src.get("id"));
-                    doc.put("sku", sku);
-                    doc.put("brand", brand);
-                    doc.put("brand_phonetic", phonetic(brand));
-                    doc.put("short_description", shortDescription);
-                    doc.put("short_description_phonetic", phonetic(shortDescription));
-                    doc.put("categories", categories);
-                    doc.put("categories_phonetic", phoneticCategories(categories));
-                    doc.put("color", colors);
-                    doc.put("created_at", toEpochSeconds((String) src.get("created_at")));
-                    doc.put("gender", mapGender(extractGender(src)).gender);
-                    doc.put("gender_rank", mapGender(extractGender(src)).genderValue);
-                    doc.put("price", extractPrice(src));
-                    doc.put("price_by_currency", extractFloatWithFallback(src, "price_by_currency", "price"));
-                    doc.put("price_for_other", extractFloatWithFallback(src, "price_for_other", "price"));
-                    doc.put("special_price", extractFloatWithFallback(src, "special_price", "price"));
-                    doc.put("special_price_by_currency", extractFloatWithFallback(src, "special_price_by_currency", "price"));
-                    doc.put("special_price_for_other", extractFloatWithFallback(src, "special_price_for_other", "price"));
-                    doc.put("customizable_for_kids", 0);
-                    doc.put("has_square_images", src.get("has_square_images"));
-                    doc.put("hideDiscountFlag", 0);
-                    doc.put("hover_image", buildImageUrl(src, "thumbnail"));
-                    doc.put("image_url", buildImageUrl(src, "image"));
-                    doc.put("image_label", "");
-                    doc.put("img", buildImageUrl(src, "image"));
-                    doc.put("isAvailable", extractIsAvailable(src));
-                    doc.put("is_online", 1);
-                    doc.put("meta_description", extractStringOrEmpty(src, "meta_description"));
-                    doc.put("meta_keyword", extractStringOrEmpty(src, "meta_keyword"));
-                    doc.put("meta_title", extractStringOrEmpty(src, "meta_title"));
-                    doc.put("product_type", extractStringOrEmpty(src, "type_id"));
-                    doc.put("url", extractStringOrEmpty(src, "url_key"));
-                    doc.put("show_rts_button", 0);
-                    doc.put("soldOut", extractSoldOut(src) ? 1 : 0);
-                    doc.put("showInterest", extractSoldOut(src) ? 1 : 0);
-                    doc.put("type", "product");
-                    ShippingInfo shippingInfo = extractShippingInfo(src);
-                    doc.put("ship_in_info", prepareShipInDays(src.get("ship_in_days")));
-                    doc.put("available_sizes", shippingInfo.availableSizes);
-                    doc.put("readyToShip", shippingInfo.readyToShip ? 1 : 0);
-                    doc.put("readyToShip_24hr", shippingInfo.readyToShip24hr ? 1 : 0);
-                    doc.put("readyToShipIcon", shippingInfo.readyToShipIcon);
-                    doc.put("readyToShip_24hr_text", shippingInfo.readyToShipText);
-                    doc.put("discount", extractDiscount(src, "discount"));
-                    doc.put("discount_us", extractDiscount(src, "discount_us"));
-                    doc.put("discount_row", extractDiscount(src, "discount_row"));
-                    doc.put("discount_range", prepareDiscountRange(extractDiscount(src, "discount")));
-                    doc.put("discount_range_us", prepareDiscountRange(extractDiscount(src, "discount_us")));
-                    doc.put("discount_range_row", prepareDiscountRange(extractDiscount(src, "discount_row")));
-                    doc.put("tag", extractTagFromHtml(src.get("icon_html")));
-                    doc.put("price_on_request", extractPriceOnRequest(src, extractSoldOut(src)));
+                    List<String> categories = extractCategories(src);
+                    List<String> colors = extractColors(src, ((String) src.get("short_description")).toLowerCase());
+                    String brand = ((String) src.get("name")).toLowerCase();
+                    String shortDescription = (normalizeShortDescription(src.get("short_description")).toLowerCase());
+                    try {
+                        doc.put("id", src.get("id"));
+                        doc.put("sku", sku);
+                        doc.put("brand", brand);
+                        doc.put("brand_phonetic", phonetic(brand));
+                        doc.put("short_description", shortDescription);
+                        doc.put("short_description_phonetic", phonetic(shortDescription));
+                        doc.put("categories", categories);
+                        doc.put("categories_phonetic", phoneticCategories(categories));
+                        doc.put("color", colors);
+                        doc.put("created_at", toEpochSeconds((String) src.get("created_at")));
+                        doc.put("gender", mapGender(extractGender(src)).gender);
+                        doc.put("gender_rank", mapGender(extractGender(src)).genderValue);
+                        doc.put("price", extractPrice(src));
+                        doc.put("price_by_currency", extractFloatWithFallback(src, "price_by_currency", "price"));
+                        doc.put("price_for_other", extractFloatWithFallback(src, "price_for_other", "price"));
+                        doc.put("special_price", extractFloatWithFallback(src, "special_price", "price"));
+                        doc.put("special_price_by_currency", extractFloatWithFallback(src, "special_price_by_currency", "price"));
+                        doc.put("special_price_for_other", extractFloatWithFallback(src, "special_price_for_other", "price"));
+                        doc.put("customizable_for_kids", 0);
+                        doc.put("has_square_images", src.get("has_square_images"));
+                        doc.put("hideDiscountFlag", 0);
+                        doc.put("hover_image", buildImageUrl(src, "thumbnail"));
+                        doc.put("image_url", buildImageUrl(src, "image"));
+                        doc.put("image_label", "");
+                        doc.put("img", buildImageUrl(src, "image"));
+                        doc.put("isAvailable", extractIsAvailable(src));
+                        doc.put("is_online", 1);
+                        doc.put("meta_description", extractStringOrEmpty(src, "meta_description"));
+                        doc.put("meta_keyword", extractStringOrEmpty(src, "meta_keyword"));
+                        doc.put("meta_title", extractStringOrEmpty(src, "meta_title"));
+                        doc.put("product_type", extractStringOrEmpty(src, "type_id"));
+                        doc.put("url", extractStringOrEmpty(src, "url_key"));
+                        doc.put("show_rts_button", 0);
+                        doc.put("soldOut", extractSoldOut(src) ? 1 : 0);
+                        doc.put("showInterest", extractSoldOut(src) ? 1 : 0);
+                        doc.put("type", "product");
+                        ShippingInfo shippingInfo = extractShippingInfo(src);
+                        doc.put("ship_in_info", prepareShipInDays(src.get("ship_in_days")));
+                        doc.put("available_sizes", shippingInfo.availableSizes);
+                        doc.put("readyToShip", shippingInfo.readyToShip ? 1 : 0);
+                        doc.put("readyToShip_24hr", shippingInfo.readyToShip24hr ? 1 : 0);
+                        doc.put("readyToShipIcon", shippingInfo.readyToShipIcon);
+                        doc.put("readyToShip_24hr_text", shippingInfo.readyToShipText);
+                        doc.put("discount", extractDiscount(src, "discount"));
+                        doc.put("discount_us", extractDiscount(src, "discount_us"));
+                        doc.put("discount_row", extractDiscount(src, "discount_row"));
+                        doc.put("discount_range", prepareDiscountRange(extractDiscount(src, "discount")));
+                        doc.put("discount_range_us", prepareDiscountRange(extractDiscount(src, "discount_us")));
+                        doc.put("discount_range_row", prepareDiscountRange(extractDiscount(src, "discount_row")));
+                        doc.put("tag", extractTagFromHtml(src.get("icon_html")));
+                        doc.put("price_on_request", extractPriceOnRequest(src, extractSoldOut(src)));
 //                    doc.put("embedding", makeEmbedding(categories, colors, brand, shortDescription));
-                    String embeddingText = buildEmbeddingText(categories, colors, brand, shortDescription);
+                        String embeddingText = buildEmbeddingText(categories, colors, brand, shortDescription);
 
-                    embedItems.add(new BulkEmbedItem(sku, embeddingText));
+                        embedItems.add(new BulkEmbedItem(sku, embeddingText));
 
 
-                    batch.add(doc);
-                } catch (Exception ex) {
-                    System.out.println("Error in " + sku + "  " + ex.getMessage());
+                        batch.add(doc);
+                    } catch (Exception ex) {
+                        System.out.println("Error in " + sku + "  " + ex.getMessage());
+                    }
+
+                }
+                Map<String, float[]> embeddingsBySku =
+                        embiddingApiClient.embedBulk(embedItems);
+
+
+                for (Map<String, Object> doc : batch) {
+                    String sku = (String) doc.get("sku");
+                    float[] embedding = embeddingsBySku.get(sku);
+                    if (embedding != null) {
+                        doc.put("embedding", embedding);
+                    }
                 }
 
+                var a = typesenseClient
+                        .collections(TYPESENSE_COLLECTION)
+                        .documents()
+                        .import_(
+                                batch,
+                                new ImportDocumentsParameters()
+                                        .action(
+                                                "upsert"
+                                        )
+                        );
+
+                System.out.println("Indexed batch: " + batch.size());
+
+                SearchScrollRequest scrollRequest =
+                        new SearchScrollRequest(scrollId);
+                scrollRequest.scroll(TimeValue.timeValueMinutes(2));
+
+                response = esClient.scroll(
+                        scrollRequest,
+                        RequestOptions.DEFAULT
+                );
+
+                scrollId = response.getScrollId();
+                hits = response.getHits().getHits();
+            } catch (Exception ed) {
+                System.out.println("Err in chunk  " + ed.getMessage());
+
             }
-            Map<String, float[]> embeddingsBySku =
-                    embiddingApiClient.embedBulk(embedItems);
+            ClearScrollRequest clearScrollRequest =
+                    new ClearScrollRequest();
+            clearScrollRequest.addScrollId(scrollId);
 
-
-            for (Map<String, Object> doc : batch) {
-                String sku = (String) doc.get("sku");
-                float[] embedding = embeddingsBySku.get(sku);
-                if (embedding != null) {
-                    doc.put("embedding", embedding);
-                }
-            }
-
-            var a = typesenseClient
-                    .collections(TYPESENSE_COLLECTION)
-                    .documents()
-                    .import_(
-                            batch,
-                            new ImportDocumentsParameters()
-                                    .action(
-                                            "upsert"
-                                    )
-                    );
-
-            System.out.println("Indexed batch: " + batch.size());
-
-            SearchScrollRequest scrollRequest =
-                    new SearchScrollRequest(scrollId);
-            scrollRequest.scroll(TimeValue.timeValueMinutes(2));
-
-            response = esClient.scroll(
-                    scrollRequest,
+            esClient.clearScroll(
+                    clearScrollRequest,
                     RequestOptions.DEFAULT
             );
-
-            scrollId = response.getScrollId();
-            hits = response.getHits().getHits();
         }
-
-        ClearScrollRequest clearScrollRequest =
-                new ClearScrollRequest();
-        clearScrollRequest.addScrollId(scrollId);
-
-        esClient.clearScroll(
-                clearScrollRequest,
-                RequestOptions.DEFAULT
-        );
     }
 
     @SuppressWarnings("unchecked")
@@ -855,6 +858,7 @@ public class SyncService {
 
         return embiddingApiClient.embed(embeddingText);
     }
+
     private String buildEmbeddingText(
             List<String> category,
             List<String> color,

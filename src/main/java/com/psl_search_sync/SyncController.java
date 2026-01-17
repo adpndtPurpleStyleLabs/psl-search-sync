@@ -21,7 +21,12 @@ public class SyncController {
     @GetMapping("/fullSync")
     public ResponseEntity<?> fullSync() {
         try {
-            service.startFullSync();
+            if (!SyncService.isRunning) {
+                service.startFullSync();
+            } else {
+                return new ResponseEntity<>(HttpStatus.BAD_REQUEST);
+            }
+
             return new ResponseEntity<>(HttpStatus.OK);
         } catch (Exception ex) {
             log.error("Error" + ex.getMessage());
