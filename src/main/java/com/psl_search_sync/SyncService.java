@@ -45,24 +45,30 @@ public class SyncService {
 
 
     public static final Set<String> predefinedColor = Set.of(
-        "magenta","pink","rose gold","yellow","midnight blue","turquoise",
-                "multi","gold","red","fuchsia","mint","mustard","white","coral",
-                "blush pink","ivory","golden","copper","powder blue","black & white",
-                "colourless","burgundy","green","lime","black","peach","violet",
-                "brown","olive green","grey","bronze","beige","orange","blue",
-                "cobalt blue","purple","silver","nude","maroon","mauve","wine"
+            "magenta", "pink", "rose gold", "yellow", "midnight blue", "turquoise",
+            "multi", "gold", "red", "fuchsia", "mint", "mustard", "white", "coral",
+            "blush pink", "ivory", "golden", "copper", "powder blue", "black & white",
+            "colourless", "burgundy", "green", "lime", "black", "peach", "violet",
+            "brown", "olive green", "grey", "bronze", "beige", "orange", "blue",
+            "cobalt blue", "purple", "silver", "nude", "maroon", "mauve", "wine"
+    );
+
+
+    private static final Set<String> STOP_WORDS = Set.of(
+            "for", "with", "and", "or", "the", "a", "an", "of", "in", "on",
+            "to", "by", "from", "at", "is", "are", "this", "that"
     );
 
     public boolean isRunning = false;
+
     public void startFullSync() throws Exception {
-        if(!isRunning){
+        if (!isRunning) {
             migrate(elasticClient, typeSenseClient);
             System.out.println("✅ Migration completed successfully");
             isRunning = false;
         }
     }
 
-    
 
     private void migrate(RestHighLevelClient esClient, Client typesenseClient) throws Exception {
         SearchRequest searchRequest = new SearchRequest(ES_INDEX);
@@ -142,8 +148,8 @@ public class SyncService {
                     doc.put("sku", sku);
                     doc.put("brand", ((String) src.get("name")).toLowerCase());
                     doc.put("brand_phonetic", phonetic(((String) src.get("name")).toLowerCase()));
-                    doc.put("short_description", ((String) src.get("short_description")).toLowerCase());
-                    doc.put("short_description_phonetic", phonetic(((String) src.get("short_description")).toLowerCase()));
+                    doc.put("short_description", (normalizeShortDescription(src.get("short_description")).toLowerCase()));
+                    doc.put("short_description_phonetic", phonetic((normalizeShortDescription(src.get("short_description")).toLowerCase())));
                     doc.put("categories", extractCategories(src));
                     doc.put("categories_phonetic", phoneticCategories(extractCategories(src)));
                     doc.put("color", extractColors(src, ((String) src.get("short_description")).toLowerCase()));
@@ -177,8 +183,8 @@ public class SyncService {
                     ShippingInfo shippingInfo = extractShippingInfo(src);
                     doc.put("ship_in_info", prepareShipInDays(src.get("ship_in_days")));
                     doc.put("available_sizes", shippingInfo.availableSizes);
-                    doc.put("readyToShip", shippingInfo.readyToShip ? 1 :0);
-                    doc.put("readyToShip_24hr", shippingInfo.readyToShip24hr ? 1 :0);
+                    doc.put("readyToShip", shippingInfo.readyToShip ? 1 : 0);
+                    doc.put("readyToShip_24hr", shippingInfo.readyToShip24hr ? 1 : 0);
                     doc.put("readyToShipIcon", shippingInfo.readyToShipIcon);
                     doc.put("readyToShip_24hr_text", shippingInfo.readyToShipText);
                     doc.put("discount", extractDiscount(src, "discount"));
@@ -265,6 +271,7 @@ public class SyncService {
 
         return new ArrayList<>(colors);
     }
+
     private static boolean containsWord(String text, String word) {
         return Pattern
                 .compile("\\b" + Pattern.quote(word) + "\\b")
@@ -292,18 +299,43 @@ public class SyncService {
         return colors;
     }
 
-    private static String phonetic(String text) {
-        if (text == null || text.isBlank()) return "";
+    public static String phonetic(String text) {
 
-        StringBuilder sb = new StringBuilder();
-        for (String word : text.toLowerCase().split("\\s+")) {
-            if (word.length() < 3) continue;
-            String code = DM.doubleMetaphone(word);
-            if (code != null && !code.isBlank()) {
-                sb.append(code).append(" ");
+        if (text == null || text.isBlank()) {
+            return "";
+        }
+
+        StringBuilder result = new StringBuilder();
+
+        String[] tokens = text
+                .toLowerCase()
+                .replaceAll("[^a-z0-9\\s]", " ")
+                .replaceAll("\\s+", " ")
+                .trim()
+                .split(" ");
+
+        for (String token : tokens) {
+
+            if (token.length() < 3) continue;
+            if (STOP_WORDS.contains(token)) continue;
+            if (token.matches("\\d+")) continue; // skip pure numbers
+
+            // Primary + Secondary metaphone
+            String primary = DM.doubleMetaphone(token, false);
+            String secondary = DM.doubleMetaphone(token, true);
+
+            if (primary != null && !primary.isBlank()) {
+                result.append(primary).append(" ");
+            }
+
+            if (secondary != null
+                    && !secondary.isBlank()
+                    && !secondary.equals(primary)) {
+                result.append(secondary).append(" ");
             }
         }
-        return sb.toString().trim();
+
+        return result.toString().trim();
     }
 
     private static List<String> phoneticCategories(List<String> categories) {
@@ -766,4 +798,18 @@ public class SyncService {
         }
         return (soldOut && priceVal > 0) ? 1 : 0;
     }
+
+    private String normalizeShortDescription(Object value) {
+        if (value == null) {
+            return "";
+        }
+
+        return value.toString()
+                .toLowerCase()
+                .replace("-", " ")     // hyphen → space (IMPORTANT)
+                .replace("&", " ")     // & → space
+                .replaceAll("\\s+", " ")
+                .trim();
+    }
+
 }
