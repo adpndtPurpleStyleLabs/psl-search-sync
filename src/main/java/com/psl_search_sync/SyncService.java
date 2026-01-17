@@ -1,6 +1,7 @@
 package com.psl_search_sync;
 
 import org.apache.commons.codec.language.DoubleMetaphone;
+import org.elasticsearch.ElasticsearchStatusException;
 import org.elasticsearch.action.search.ClearScrollRequest;
 import org.elasticsearch.action.search.SearchRequest;
 import org.elasticsearch.action.search.SearchResponse;
@@ -62,7 +63,7 @@ public class SyncService {
             "to", "by", "from", "at", "is", "are", "this", "that"
     );
 
-    public volatile  static boolean isRunning = false;
+    public volatile static boolean isRunning = false;
 
     @Async
     public void startFullSync() throws Exception {
@@ -73,67 +74,69 @@ public class SyncService {
 
 
     private void migrate(RestHighLevelClient esClient, Client typesenseClient) throws Exception {
-        SearchRequest searchRequest = new SearchRequest(ES_INDEX);
-        searchRequest.scroll(TimeValue.timeValueMinutes(2));
+        String scrollId = null;
 
-        SearchSourceBuilder sourceBuilder = new SearchSourceBuilder()
-                .query(QueryBuilders.matchAllQuery())
-                .size(BATCH_SIZE)
-                .fetchSource(
-                        new String[]{
-                                "sku",
-                                "type_id",
-                                "name",
-                                "short_description",
-                                "color.label_lower",
-                                "category_product.label",
-                                "created_at",
-                                "id",
-                                "by_gender.url_key",
-                                "meta_title",
-                                "meta_description",
-                                "image",
-                                "small_image",
-                                "thumbnail",
-                                "url_key",
-                                "price",
-                                "has_square_images",
-                                "price_by_currency",
-                                "price_for_other",
-                                "stock",
-                                "configurable_options",
-                                "special_price",
-                                "special_price_by_currency",
-                                "special_price_for_other",
-                                "is_rts",
-                                "special_price_start_date",
-                                "special_price_end_date",
-                                "ship_in_days",
-                                "order_qty",
-                                "discount",
-                                "discount_us",
-                                "category",
-                                "configurable_children",
-                                "icon_html",
-                                "ship_in_info",
-                                "is_rts",
-                                "disable_na",
-                                "price_on_request",
-                                "discount_row"
-                        },
-                        null
-                );
+        try {
+            SearchRequest searchRequest = new SearchRequest(ES_INDEX);
+            searchRequest.scroll(TimeValue.timeValueMinutes(2));
 
+            SearchSourceBuilder sourceBuilder = new SearchSourceBuilder()
+                    .query(QueryBuilders.matchAllQuery())
+                    .size(BATCH_SIZE)
+                    .fetchSource(
+                            new String[]{
+                                    "sku",
+                                    "type_id",
+                                    "name",
+                                    "short_description",
+                                    "color.label_lower",
+                                    "category_product.label",
+                                    "created_at",
+                                    "id",
+                                    "by_gender.url_key",
+                                    "meta_title",
+                                    "meta_description",
+                                    "image",
+                                    "small_image",
+                                    "thumbnail",
+                                    "url_key",
+                                    "price",
+                                    "has_square_images",
+                                    "price_by_currency",
+                                    "price_for_other",
+                                    "stock",
+                                    "configurable_options",
+                                    "special_price",
+                                    "special_price_by_currency",
+                                    "special_price_for_other",
+                                    "is_rts",
+                                    "special_price_start_date",
+                                    "special_price_end_date",
+                                    "ship_in_days",
+                                    "order_qty",
+                                    "discount",
+                                    "discount_us",
+                                    "category",
+                                    "configurable_children",
+                                    "icon_html",
+                                    "ship_in_info",
+                                    "is_rts",
+                                    "disable_na",
+                                    "price_on_request",
+                                    "discount_row"
+                            },
+                            null
+                    );
 
-        searchRequest.source(sourceBuilder);
+            searchRequest.source(sourceBuilder);
 
-        SearchResponse response = esClient.search(searchRequest, RequestOptions.DEFAULT);
+            SearchResponse response = esClient.search(searchRequest, RequestOptions.DEFAULT);
 
-        String scrollId = response.getScrollId();
-        SearchHit[] hits = response.getHits().getHits();
+            scrollId = response.getScrollId();
+            SearchHit[] hits = response.getHits().getHits();
 
-        while (hits != null && hits.length > 0) {
-            try {
+            while (hits != null && hits.length > 0) {
+
                 List<Map<String, Object>> batch = new ArrayList<>();
                 List<BulkEmbedItem> embedItems = new ArrayList<>();
 
@@ -240,27 +243,26 @@ public class SyncService {
 
                 SearchScrollRequest scrollRequest =
                         new SearchScrollRequest(scrollId);
-                scrollRequest.scroll(TimeValue.timeValueMinutes(2));
+                scrollRequest.scroll(TimeValue.timeValueMinutes(10)); // increase
 
-                response = esClient.scroll(
-                        scrollRequest,
-                        RequestOptions.DEFAULT
-                );
-
+                response = esClient.scroll(scrollRequest, RequestOptions.DEFAULT);
                 scrollId = response.getScrollId();
                 hits = response.getHits().getHits();
-            } catch (Exception ed) {
-                System.out.println("Err in chunk  " + ed.getMessage());
-
             }
-            ClearScrollRequest clearScrollRequest =
-                    new ClearScrollRequest();
-            clearScrollRequest.addScrollId(scrollId);
 
-            esClient.clearScroll(
-                    clearScrollRequest,
-                    RequestOptions.DEFAULT
-            );
+        } finally {
+            if (scrollId != null) {
+                try {
+                    ClearScrollRequest clearScrollRequest =
+                            new ClearScrollRequest();
+                    clearScrollRequest.addScrollId(scrollId);
+                    esClient.clearScroll(clearScrollRequest, RequestOptions.DEFAULT);
+                } catch (ElasticsearchStatusException e) {
+                    if (e.status().getStatus() != 404) {
+                        throw e;
+                    }
+                }
+            }
         }
     }
 
