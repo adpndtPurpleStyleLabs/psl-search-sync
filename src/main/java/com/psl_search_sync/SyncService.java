@@ -131,11 +131,11 @@ public class SyncService {
 
         String scrollId = response.getScrollId();
         SearchHit[] hits = response.getHits().getHits();
-        List<BulkEmbedItem> embedItems = new ArrayList<>();
 
         while (hits != null && hits.length > 0) {
 
             List<Map<String, Object>> batch = new ArrayList<>();
+            List<BulkEmbedItem> embedItems = new ArrayList<>();
 
             for (SearchHit hit : hits) {
                 Map<String, Object> src = hit.getSourceAsMap();
