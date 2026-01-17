@@ -32,6 +32,8 @@ import java.util.regex.Pattern;
 @Service
 public class SyncService {
     @Autowired
+    private  EmbiddingApiClient embiddingApiClient;
+    @Autowired
     private RestHighLevelClient elasticClient;
     @Autowired
     private Client typeSenseClient;
@@ -140,19 +142,22 @@ public class SyncService {
                 String type = (String) src.get("type_id");
 
                 if (type.equals("giftcards")) continue;
-
                 String sku = ((String) src.get("sku")).toLowerCase();
-                try {
 
+                List<String> categories =  extractCategories(src);
+                List<String> colors =  extractColors(src, ((String) src.get("short_description")).toLowerCase());
+                String brand = ((String) src.get("name")).toLowerCase();
+                String shortDescription = (normalizeShortDescription(src.get("short_description")).toLowerCase());
+                try {
                     doc.put("id", src.get("id"));
                     doc.put("sku", sku);
-                    doc.put("brand", ((String) src.get("name")).toLowerCase());
-                    doc.put("brand_phonetic", phonetic(((String) src.get("name")).toLowerCase()));
-                    doc.put("short_description", (normalizeShortDescription(src.get("short_description")).toLowerCase()));
-                    doc.put("short_description_phonetic", phonetic((normalizeShortDescription(src.get("short_description")).toLowerCase())));
-                    doc.put("categories", extractCategories(src));
-                    doc.put("categories_phonetic", phoneticCategories(extractCategories(src)));
-                    doc.put("color", extractColors(src, ((String) src.get("short_description")).toLowerCase()));
+                    doc.put("brand", brand);
+                    doc.put("brand_phonetic", phonetic(brand));
+                    doc.put("short_description", shortDescription);
+                    doc.put("short_description_phonetic", phonetic(shortDescription));
+                    doc.put("categories", categories);
+                    doc.put("categories_phonetic", phoneticCategories(categories));
+                    doc.put("color", colors);
                     doc.put("created_at", toEpochSeconds((String) src.get("created_at")));
                     doc.put("gender", mapGender(extractGender(src)).gender);
                     doc.put("gender_rank", mapGender(extractGender(src)).genderValue);
@@ -195,6 +200,7 @@ public class SyncService {
                     doc.put("discount_range_row", prepareDiscountRange(extractDiscount(src, "discount_row")));
                     doc.put("tag", extractTagFromHtml(src.get("icon_html")));
                     doc.put("price_on_request", extractPriceOnRequest(src, extractSoldOut(src)));
+                    doc.put("embedding", makeEmbedding(categories, colors, brand, shortDescription));
                     batch.add(doc);
                 } catch (Exception ex) {
                     System.out.println("Error in " + sku + "  " + ex.getMessage());
@@ -808,6 +814,66 @@ public class SyncService {
                 .toLowerCase()
                 .replace("-", " ")     // hyphen → space (IMPORTANT)
                 .replace("&", " ")     // & → space
+                .replaceAll("\\s+", " ")
+                .trim();
+    }
+
+    public float[] makeEmbedding(
+            List<String> category,
+            List<String> color,
+            String brand,
+            String shortDescription
+    ) {
+
+        String embeddingText = buildEmbeddingText(
+                category,
+                color,
+                brand,
+                shortDescription
+        );
+
+        if (embeddingText.isBlank()) {
+            return new float[0];
+        }
+
+        return embiddingApiClient.embed(embeddingText);
+    }
+    private String buildEmbeddingText(
+            List<String> category,
+            List<String> color,
+            String brand,
+            String shortDescription
+    ) {
+
+        StringBuilder sb = new StringBuilder();
+
+        if (category != null) {
+            category.stream()
+                    .filter(s -> s != null && !s.isBlank())
+                    .forEach(s -> sb.append(s).append(" "));
+        }
+
+        if (color != null) {
+            color.stream()
+                    .filter(s -> s != null && !s.isBlank())
+                    .forEach(s -> sb.append(s).append(" "));
+        }
+
+        if (brand != null && !brand.isBlank()) {
+            sb.append(brand).append(" ");
+        }
+
+        if (shortDescription != null && !shortDescription.isBlank()) {
+            sb.append(shortDescription);
+        }
+
+        return normalizeForEmbedding(sb.toString());
+    }
+
+    private String normalizeForEmbedding(String text) {
+        return text
+                .toLowerCase()
+                .replaceAll("[^a-z0-9\\s]", " ")
                 .replaceAll("\\s+", " ")
                 .trim();
     }
