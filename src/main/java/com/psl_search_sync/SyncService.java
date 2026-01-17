@@ -12,6 +12,7 @@ import org.elasticsearch.common.unit.TimeValue;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
+import org.elasticsearch.search.sort.SortOrder;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
@@ -81,6 +82,7 @@ public class SyncService {
             searchRequest.scroll(TimeValue.timeValueMinutes(2));
 
             SearchSourceBuilder sourceBuilder = new SearchSourceBuilder()
+                    .sort("id", SortOrder.DESC)
                     .query(QueryBuilders.matchAllQuery())
                     .size(BATCH_SIZE)
                     .fetchSource(
